@@ -1,0 +1,22 @@
+# Keil MDK 编译/调试产物（重新编译或打开工程会自动生成）
+OBJ/
+Listings/
+Objects/
+RTE/
+*.axf
+*.hex
+*.o
+*.d
+*.crf
+*.lnp
+*.sct
+*.dep
+*.build_log.htm
+*.map
+*.lst
+*.uvguix.*
+*.uvopt
+JLinkLog.txt
+
+# Altium 自动生成的原理图预览缓存
+__Previews/
