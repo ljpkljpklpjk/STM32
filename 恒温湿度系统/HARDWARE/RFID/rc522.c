@@ -5,6 +5,9 @@
 #include "string.h"
 #include "rc522_config.h"
 
+/*»Ìº˛SPI ±–Ú—” ±*/
+#define RC522_DELAY()  delay_us( 20 )
+
 
 void RC522_Init ( void )
 {
