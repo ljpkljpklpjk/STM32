@@ -82,14 +82,14 @@ void send1()
 	OLED_ShowCHinese(55,0,2); 
 	OLED_ShowCHinese(71,0,1);
 	OLED_ShowNum(87,0,Humidity1,2,16);
-	delay_ms(100);
-	printf("n0.val=%d",Temperature1);  
-					send1();
-					printf("n1.val=%d",Humidity1); 
-					send1();
-
+  printf("page1.n0.val=%d",Temperature1);  
+	send();
+	printf("page1.n1.val=%d",Humidity1); 
+	send1();
   AirQuality1=Get_Adc(ADC_Channel_0);
 	AirQuality1=(3900-AirQuality1)/39;
+		printf("page1.n2.val=%d",AirQuality1);  
+	send1();
   //printf("%d\r\n",AirQuality);
 	OLED_ShowCHinese(0,2,9); 
 	OLED_ShowCHinese(18,2,10);
@@ -109,24 +109,25 @@ void send1()
 		OLED_ShowCHinese(48,0,16);
 		GPIO_SetBits(GPIOB,GPIO_Pin_7);					 //小太阳
 					   GPIO_SetBits(GPIOB,GPIO_Pin_8);						 //待定
-//		printf("\xff\xff\xff");      //操作串口屏跳转界面
-//    printf("page 2\xff\xff\xff");      //操作串口屏跳转界面
+		printf("\xff\xff\xff");      //操作串口屏跳转界面
+    printf("page 2\xff\xff\xff");      //操作串口屏跳转界面
 		delay_ms(1000);
 		OLED_Clear();  //OLED屏幕清屏
 		GPIO_ResetBits(GPIOB,GPIO_Pin_7);					 //小太阳
 		GPIO_ResetBits(GPIOB,GPIO_Pin_8);						 //待定
-//		printf("\xff\xff\xff");      //操作串口屏跳转界面
-//    printf("page 0\xff\xff\xff");      //操作串口屏跳转界面
+		printf("\xff\xff\xff");      //操作串口屏跳转界面
+    printf("page 0\xff\xff\xff");      //操作串口屏跳转界面
 	}
 	  if(In==0)
 							 {
-								 //	printf("\xff\xff\xff");      //操作串口屏跳转界面
-                 // printf("page 3\xff\xff\xff");      //操作串口屏跳转界面
-								  GPIO_SetBits(GPIOB,GPIO_Pin_8);						 //待定
+								 	printf("\xff\xff\xff");      //操作串口屏跳转界面
+                  printf("page 3\xff\xff\xff");      //操作串口屏跳转界面
+								   GPIO_SetBits(GPIOB,GPIO_Pin_8);						 //待定
+								
 								 	delay_ms(1000);
 						      delay_ms(1000);
-								 	//printf("\xff\xff\xff");      //操作串口屏跳转界面
-                 // printf("page 0\xff\xff\xff");      //操作串口屏跳转界面
+								 	printf("\xff\xff\xff");      //操作串口屏跳转界面
+                  printf("page 0\xff\xff\xff");      //操作串口屏跳转界面
 								  GPIO_ResetBits(GPIOB,GPIO_Pin_8);						 //待定
 							
 							 }
@@ -134,6 +135,7 @@ void send1()
 
 int main(void)
 {  
+	int z=10;
 //	  int person=30;
 //	  u16 AirQuality;   //空气质量
 //	  u16 Fire;   //火灾情况
@@ -150,6 +152,7 @@ int main(void)
 	//  printf("ok");
     while(1)
     {   
+			GPIO_ResetBits(GPIOC,GPIO_Pin_13);						 //待定
 			//DHT11_Read_Data(&Temperature,&Humidity);	//读取温湿度值
 		//printf("%d\r\n",Temperature);
 //		  AirQuality=Get_Adc(ADC_Channel_0);
@@ -162,8 +165,16 @@ int main(void)
 //		  	printf("%d\r\n",Fire);
 //			//Text_Temperature();
 			//Test_Oled();  //测试oled
-    RC522_Handel();   //RFID程序读取
+   RC522_Handel();   //RFID程序读取
 	  Control1();
+//	if(USART_ReceiveData(USART1)==03)
+//	{
+//	 GPIO_SetBits(GPIOC,GPIO_Pin_13);						 //待定
+//		z=z-1;
+//		printf("n7.val=%d",z); 
+//	  send1();
+//		
+//	}
 //     In=Get_Adc(ADC_Channel_3);
 //		 printf("In=%d\r\n",In);
 //		Out=Get_Adc(ADC_Channel_2);
