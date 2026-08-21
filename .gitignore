@@ -20,3 +20,4 @@ JLinkLog.txt
 
 # Altium 自动生成的原理图预览缓存
 __Previews/
+.reasonix/
