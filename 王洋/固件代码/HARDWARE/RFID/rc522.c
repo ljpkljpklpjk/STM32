@@ -92,9 +92,9 @@ void Control()
 	OLED_ShowCHinese(55,0,2); 
 	OLED_ShowCHinese(71,0,1);
 	OLED_ShowNum(87,0,Humidity,2,16);
-	printf("page1.n0.val=%d",Temperature);  
+	printf("n0.val=%d",Temperature);  
 	send();
-	printf("page1.n1.val=%d",Humidity); 
+	printf("n1.val=%d",Humidity); 
 	send();
 	
   AirQuality=Get_Adc(ADC_Channel_0);
@@ -102,7 +102,7 @@ void Control()
 	OLED_ShowCHinese(0,2,9); 
 	OLED_ShowCHinese(18,2,10);
   OLED_ShowNum(36,2,AirQuality,2,16);
-	printf("page1.n2.val=%d",AirQuality);  
+	printf("n2.val=%d",AirQuality);  
 	send();
 	
 	Fire=Get_Adc(ADC_Channel_1);
@@ -114,15 +114,16 @@ void Control()
 		OLED_ShowCHinese(36,0,15);
 		OLED_ShowCHinese(52,0,16);
 		GPIO_SetBits(GPIOB,GPIO_Pin_7);					 //小太阳
-		printf("\xff\xff\xff");      //操作串口屏跳转界面
-    printf("page 2\xff\xff\xff");      //操作串口屏跳转界面
+//		printf("\xff\xff\xff");      //操作串口屏跳转界面
+//    printf("page 2\xff\xff\xff");      //操作串口屏跳转界面
 		delay_ms(1000);
 		delay_ms(1000);
 		OLED_Clear();  //OLED屏幕清屏
-	GPIO_ResetBits(GPIOB,GPIO_Pin_7);					 //小太阳
-		printf("\xff\xff\xff");      //操作串口屏跳转界面
-    printf("page 0\xff\xff\xff");      //操作串口屏跳转界面
+	  GPIO_ResetBits(GPIOB,GPIO_Pin_7);					 //小太阳
+//		printf("\xff\xff\xff");      //操作串口屏跳转界面
+//    printf("page 0\xff\xff\xff");      //操作串口屏跳转界面
 	}
+	delay_ms(100);
 }
 
 void standard()
@@ -130,21 +131,22 @@ void standard()
 	
 	if(USART_ReceiveData(USART1)==03)
 	{
-		USART_RX_STA=0;
+	//	USART_RX_STA=0;
 		wendu=wendu+1;
 		printf("n3.val=%d",wendu); 
 	  send();
+		delay_ms(80);
   
 	}
 	
 
 	if(USART_ReceiveData(USART1)==04)
 	{
-		USART_RX_STA=0;
+	//	USART_RX_STA=0;
 		wendu=wendu-1;
 		printf("n3.val=%d",wendu); 
 	  send();
-
+	delay_ms(80);
 	}
 else if(USART_ReceiveData(USART1)==05)
 	{
@@ -152,7 +154,7 @@ else if(USART_ReceiveData(USART1)==05)
 		shidu=shidu+1;
 		printf("n4.val=%d",shidu); 
 	  send();
-		
+			delay_ms(80);
 	}
 	 else if(USART_ReceiveData(USART1)==06)
 	{
@@ -160,7 +162,7 @@ else if(USART_ReceiveData(USART1)==05)
 		shidu=shidu-1;
 		printf("n4.val=%d",shidu); 
 	  send();
-	
+		delay_ms(80);
 	}
 	 else if(USART_ReceiveData(USART1)==07)
 	{ 
@@ -168,7 +170,7 @@ else if(USART_ReceiveData(USART1)==05)
 		kongqi=kongqi+1;
 		printf("n5.val=%d",kongqi); 
 	  send();
-	
+		delay_ms(80);
 	}
 	 else if(USART_ReceiveData(USART1)==0x11)
 	{
@@ -176,7 +178,7 @@ else if(USART_ReceiveData(USART1)==05)
 		kongqi=kongqi-1;
 		printf("n5.val=%d",kongqi); 
 	  send();
-	
+		delay_ms(80);
 	}
 	 if(USART_ReceiveData(USART1)=='a')
 	{
@@ -184,7 +186,7 @@ else if(USART_ReceiveData(USART1)==05)
 		number=number+1;
 		printf("n7.val=%d",number); 
 	  send();
-		USART_RX_STA=0;
+		delay_ms(80);
 	}
 	 if(USART_ReceiveData(USART1)=='b')
 	{
@@ -192,7 +194,7 @@ else if(USART_ReceiveData(USART1)==05)
 		number=number-1;
 		printf("n7.val=%d",number); 
 	  send();
-		USART_RX_STA=0;
+		delay_ms(80);
 	}
 	if(USART_ReceiveData(USART1)==00)
 	{
@@ -274,18 +276,17 @@ void RC522_Handel(void)
        
         if((SN[0]==lxl[0])&&(SN[1]==lxl[1])&&(SN[2]==lxl[2])&&(SN[3]==lxl[3]))   //管理员卡片
         { 
-					 delay_ms(1000);
+
           OLED_Clear();
          	Hello();
           delay_ms(1000);
        	  delay_ms(1000);	
-					OLED_Clear();
-					//dealy_ms(200);
-					USART_RX_STA=0;
+			  	OLED_Clear();
+		
 					
-					while(USART_ReceiveData(USART1)!=01)
+					while(1)
 					{
-					USART_RX_STA=0;
+				
 					DHT11_Read_Data(&Temperature,&Humidity);	//读取温湿度值
 					OLED_ShowCHinese(0,0,0); 
 					OLED_ShowCHinese(18,0,1);
@@ -293,18 +294,18 @@ void RC522_Handel(void)
 					OLED_ShowCHinese(55,0,2); 
 					OLED_ShowCHinese(71,0,1);
 					OLED_ShowNum(87,0,Humidity,2,16);
-					printf("page1.n0.val=%d",Temperature);  
+					printf("n0.val=%d",Temperature);  
 					send();
-					printf("page1.n1.val=%d",Humidity); 
+					printf("n1.val=%d",Humidity); 
 					send();
-						
+							ShowNumner();
+								Judge();
 					AirQuality=Get_Adc(ADC_Channel_0);
 					AirQuality=(3900-AirQuality)/39;
-					//printf("%d\r\n",AirQuality);
 					OLED_ShowCHinese(0,4,9); 
 					OLED_ShowCHinese(18,4,10);
 					OLED_ShowNum(36,4,AirQuality,2,16);
-					printf("page1.n2.val=%d",AirQuality);  
+					printf("n2.val=%d",AirQuality);  
 					send();
           
 					Fire=Get_Adc(ADC_Channel_1);
@@ -317,75 +318,26 @@ void RC522_Handel(void)
 						OLED_ShowCHinese(52,0,16);
 						GPIO_SetBits(GPIOB,GPIO_Pin_8);					 //水
 						GPIO_SetBits(GPIOB,GPIO_Pin_7);					 //水
-						printf("\xff\xff\xff");      //操作串口屏跳转界面
-            printf("page 2\xff\xff\xff");      //操作串口屏跳转界面
+
 						delay_ms(1000);
 						delay_ms(1000);
 						OLED_Clear();  //OLED屏幕清屏
 						GPIO_ResetBits(GPIOB,GPIO_Pin_8);					 //水
-								GPIO_ResetBits(GPIOB,GPIO_Pin_7);					 //水
-						printf("\xff\xff\xff");      //操作串口屏跳转界面
-           printf("page 0\xff\xff\xff");      //操作串口屏跳转界面
-					}
-					OLED_ShowCHinese(72,6,26); 
-	        OLED_ShowCHinese(90,6,29);
-					Judge();
-					if(USART_ReceiveData(USART1)==01)
-					{
-						b=2;
-						a=1;
-						break;
-					}
-				}
-					 	USART_RX_STA=0; 
-					  OLED_Clear();
-      
+						GPIO_ResetBits(GPIOB,GPIO_Pin_7);					 //水
 
-				while(1)        //开启系统
-					{
-						
-						while(a==1)
-					  { 
-							if(c==1)
-							  {
-									 OLED_Clear();  //OLED屏幕清屏
-								}
-					      Control();
-					    	standard();
-								ShowNumner();
-								Judge();
-							  c=2;
-						
-						   if(USART_ReceiveData(USART1)==02) // 关闭
+					}
+				if(In==0)
 							 {
-								 a=2;
-								 OLED_Clear();  //OLED屏幕清屏
-								 USART_RX_STA=0;
-							 }							 
-					  }
-						
-						if(USART_ReceiveData(USART1)==01)
-						{
-							a=1;
-						 	c=1;
-						}
-						   Control();
-						   standard();
-						   if(In==0)
-							 {
-								 	printf("\xff\xff\xff");      //操作串口屏跳转界面
-                  printf("page 3\xff\xff\xff");      //操作串口屏跳转界面
+
 								  GPIO_SetBits(GPIOB,GPIO_Pin_8);						 //蜂鸣器
 								 	delay_ms(1000);
 						      delay_ms(1000);
-								 	printf("\xff\xff\xff");      //操作串口屏跳转界面
-                  printf("page 0\xff\xff\xff");      //操作串口屏跳转界面
+
 								  GPIO_ResetBits(GPIOB,GPIO_Pin_8);						 //蜂鸣器
 							 }
-						OLED_ShowCHinese(72,6,26); 
-	          OLED_ShowCHinese(90,6,29);
-				  }
-
+					Judge();
+							 	delay_ms(1000);
+				}
         }
 
     }

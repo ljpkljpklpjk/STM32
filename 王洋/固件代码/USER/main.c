@@ -67,7 +67,12 @@ mq135
     u8 Humidity1;   //湿度
     // u16 In;   //
 	//  u16 Out;   //
-
+void send1()
+{
+	printf("%c",0xff);
+	printf("%c",0xff);
+	printf("%c",0xff);
+}
 	void Control1()
 {
 	DHT11_Read_Data(&Temperature1,&Humidity1);	//读取温湿度值
@@ -77,6 +82,11 @@ mq135
 	OLED_ShowCHinese(55,0,2); 
 	OLED_ShowCHinese(71,0,1);
 	OLED_ShowNum(87,0,Humidity1,2,16);
+	delay_ms(100);
+	printf("n0.val=%d",Temperature1);  
+					send1();
+					printf("n1.val=%d",Humidity1); 
+					send1();
 
   AirQuality1=Get_Adc(ADC_Channel_0);
 	AirQuality1=(3900-AirQuality1)/39;
@@ -99,25 +109,24 @@ mq135
 		OLED_ShowCHinese(48,0,16);
 		GPIO_SetBits(GPIOB,GPIO_Pin_7);					 //小太阳
 					   GPIO_SetBits(GPIOB,GPIO_Pin_8);						 //待定
-		printf("\xff\xff\xff");      //操作串口屏跳转界面
-    printf("page 2\xff\xff\xff");      //操作串口屏跳转界面
+//		printf("\xff\xff\xff");      //操作串口屏跳转界面
+//    printf("page 2\xff\xff\xff");      //操作串口屏跳转界面
 		delay_ms(1000);
 		OLED_Clear();  //OLED屏幕清屏
 		GPIO_ResetBits(GPIOB,GPIO_Pin_7);					 //小太阳
 		GPIO_ResetBits(GPIOB,GPIO_Pin_8);						 //待定
-		printf("\xff\xff\xff");      //操作串口屏跳转界面
-    printf("page 0\xff\xff\xff");      //操作串口屏跳转界面
+//		printf("\xff\xff\xff");      //操作串口屏跳转界面
+//    printf("page 0\xff\xff\xff");      //操作串口屏跳转界面
 	}
 	  if(In==0)
 							 {
-								 	printf("\xff\xff\xff");      //操作串口屏跳转界面
-                  printf("page 3\xff\xff\xff");      //操作串口屏跳转界面
-								   GPIO_SetBits(GPIOB,GPIO_Pin_8);						 //待定
-								
+								 //	printf("\xff\xff\xff");      //操作串口屏跳转界面
+                 // printf("page 3\xff\xff\xff");      //操作串口屏跳转界面
+								  GPIO_SetBits(GPIOB,GPIO_Pin_8);						 //待定
 								 	delay_ms(1000);
 						      delay_ms(1000);
-								 	printf("\xff\xff\xff");      //操作串口屏跳转界面
-                  printf("page 0\xff\xff\xff");      //操作串口屏跳转界面
+								 	//printf("\xff\xff\xff");      //操作串口屏跳转界面
+                 // printf("page 0\xff\xff\xff");      //操作串口屏跳转界面
 								  GPIO_ResetBits(GPIOB,GPIO_Pin_8);						 //待定
 							
 							 }
