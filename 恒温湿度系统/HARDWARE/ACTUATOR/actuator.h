@@ -16,7 +16,7 @@
  *          让给需要接收5V电平的旋钮编码器。
  */
 
-#define RELAY_ACTIVE_LOW    1       //1:继电器低电平吸合  0:高电平吸合
+#define RELAY_ACTIVE_LOW    0       //1:继电器低电平吸合  0:高电平吸合
 
 //----------------- 端口定义 -----------------
 #define FAN_GPIO            GPIOA
