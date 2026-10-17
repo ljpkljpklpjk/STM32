@@ -66,7 +66,7 @@ void Display_Update(s16 temp_x10, s16 humi_x10)
             g_sys.humidifier ? '1' : '0');
     ShowLine(0, 32, s_buf, 12, LINE12_CHARS);
 
-    //---------------- 第4行: 状态提示 ----------------
+    //---------------- 第4行: 状态提示(正常运行时顺便显示冷风风扇占空比) ----------------
     switch(g_sys.state)
     {
         case ST_WAIT_CARD:
@@ -90,7 +90,7 @@ void Display_Update(s16 temp_x10, s16 humi_x10)
             if(g_sys.card_denied)       sprintf(s_buf, "Card denied!");
             else if(!DHT11_Data_Valid())sprintf(s_buf, "Sensor error!");
             else if(g_sys.alarm)        sprintf(s_buf, "** ALARM **");
-            else                        sprintf(s_buf, "Running   OK");
+            else                        sprintf(s_buf, "Running CF:%3d%%", g_sys.cold_fan);
             break;
     }
     ShowLine(0, 48, s_buf, 12, LINE12_CHARS);

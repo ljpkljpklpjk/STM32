@@ -4,10 +4,12 @@
  *
  * 功能:
  *   1. DHT11 采集环境温湿度, 经中值 + 一阶滞后滤波后使用;
- *   2. 带回差的开关控制: 加热器/制冷片调温, 加湿器/风扇调湿;
- *   3. 温湿度偏离设定值超过阈值时蜂鸣器报警, 回到阈值内自动解除;
- *   4. 0.96寸 SPI OLED 显示实测值、设定值与各执行机构状态;
- *   5. 两个旋钮编码器分别调整温度、湿度设定值;
+ *   2. 带回差的开关控制: 加热器/制冷片调温, 加湿器/除湿风扇调湿;
+ *   3. 制冷片旁边的冷风风扇用 PWM 调速: 室温比目标温度高得越多转得越快,
+ *      高出10℃及以上满速, 不高于目标温度停转;
+ *   4. 温湿度偏离设定值超过阈值时蜂鸣器报警, 回到阈值内自动解除;
+ *   5. 0.96寸 SPI OLED 显示实测值、设定值、各执行机构状态与冷风风扇占空比;
+ *   6. 两个旋钮编码器分别调整温度、湿度设定值;
  *      按下编码器按键后需刷 RFID 卡验证身份, 通过后才能调整。
  *
  * 详细接线见工程根目录的 接线说明.md
@@ -97,11 +99,11 @@ int main(void)
             Control_Update(DHT11_Get_Temp(), DHT11_Get_Humi(), DHT11_Data_Valid());
             Control_Alarm (DHT11_Get_Temp(), DHT11_Get_Humi(), DHT11_Data_Valid());
 
-            printf("T=%d.%dC H=%d.%d%% Tset=%d Hset=%d HT=%d CL=%d FN=%d HM=%d AL=%d\r\n",
+            printf("T=%d.%dC H=%d.%d%% Tset=%d Hset=%d HT=%d CL=%d FN=%d CF=%d HM=%d AL=%d\r\n",
                    DHT11_Get_Temp_x10() / 10, DHT11_Get_Temp_x10() % 10,
                    DHT11_Get_Humi_x10() / 10, DHT11_Get_Humi_x10() % 10,
                    g_sys.temp_set, g_sys.humi_set,
-                   g_sys.heater, g_sys.cooler, g_sys.fan,
+                   g_sys.heater, g_sys.cooler, g_sys.fan, g_sys.cold_fan,
                    g_sys.humidifier, g_sys.alarm);
         }
 

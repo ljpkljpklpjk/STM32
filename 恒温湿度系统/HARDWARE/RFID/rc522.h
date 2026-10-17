@@ -159,6 +159,7 @@ void SPI1_Init(void);
 #define          RC522_MISO_GET()          GPIO_ReadInputDataBit ( GPIOA, GPIO_Pin_6 )
 
 void             RC522_Init                 ( void );                       //初始化
+void             RC522_Check                ( void );                       //检查RC522状态, 异常时自动重新初始化
 void             PcdReset                   ( void );                       //复位
 void             M500PcdConfigISOType       ( u8 type );                    //工作方式
 char             PcdRequest                 ( u8 req_code, u8 * pTagType ); //寻卡

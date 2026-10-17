@@ -28,34 +28,36 @@ void SPI1_Init(void)
     GPIO_InitTypeDef GPIO_InitStructure;
     RCC_APB2PeriphClockCmd(	RC522_SPI_GPIO_ENABLED | RC522_SPI_GPIO_RST_ENABLED, ENABLE );//PORTA、B时钟使能
 
+    /* 软件SPI只有十几kHz, 引脚不需要更快的翻转速率; 边沿越缓向外辐射越小,
+       可以减少RC522天线附近的干扰 */
     // CS
     GPIO_InitStructure.GPIO_Pin = RC522_SPI_GPIO_PIN_CS;
     GPIO_InitStructure.GPIO_Mode = GPIO_Mode_Out_PP; 		 //推挽输出
-    GPIO_InitStructure.GPIO_Speed = GPIO_Speed_50MHz;		 //IO口速度为50MHz
+    GPIO_InitStructure.GPIO_Speed = GPIO_Speed_2MHz;		 //IO口速度为2MHz
     GPIO_Init(RC522_SPI_GPIO, &GPIO_InitStructure);					 //根据设定参数初始化PF0、PF1
 
     // SCK
     GPIO_InitStructure.GPIO_Pin = RC522_SPI_GPIO_PIN_SCK;
     GPIO_InitStructure.GPIO_Mode = GPIO_Mode_Out_PP; 		 //推挽输出
-    GPIO_InitStructure.GPIO_Speed = GPIO_Speed_50MHz;		 //IO口速度为50MHz
+    GPIO_InitStructure.GPIO_Speed = GPIO_Speed_2MHz;		 //IO口速度为2MHz
     GPIO_Init(RC522_SPI_GPIO , &GPIO_InitStructure);
 
     // MISO
     GPIO_InitStructure.GPIO_Pin = RC522_SPI_GPIO_PIN_MISO;
     GPIO_InitStructure.GPIO_Mode = GPIO_Mode_IN_FLOATING; 		 //推挽输出
-    GPIO_InitStructure.GPIO_Speed = GPIO_Speed_50MHz;		 //IO口速度为50MHz
+    GPIO_InitStructure.GPIO_Speed = GPIO_Speed_2MHz;		 //IO口速度为2MHz
     GPIO_Init(RC522_SPI_GPIO , &GPIO_InitStructure);
 
     // MOSI
     GPIO_InitStructure.GPIO_Pin = RC522_SPI_GPIO_PIN_MOSI;
     GPIO_InitStructure.GPIO_Mode = GPIO_Mode_Out_PP; 		 //推挽输出
-    GPIO_InitStructure.GPIO_Speed = GPIO_Speed_50MHz;		 //IO口速度为50MHz
+    GPIO_InitStructure.GPIO_Speed = GPIO_Speed_2MHz;		 //IO口速度为2MHz
     GPIO_Init(RC522_SPI_GPIO , &GPIO_InitStructure);
 
     // RST
     GPIO_InitStructure.GPIO_Pin = RC522_SPI_GPIO_PIN_RST;
     GPIO_InitStructure.GPIO_Mode = GPIO_Mode_Out_PP; 		 //推挽输出
-    GPIO_InitStructure.GPIO_Speed = GPIO_Speed_50MHz;		 //IO口速度为50MHz
+    GPIO_InitStructure.GPIO_Speed = GPIO_Speed_2MHz;		 //IO口速度为2MHz
     GPIO_Init(RC522_SPI_GPIO_RST, &GPIO_InitStructure);
 
 }
@@ -279,7 +281,11 @@ void PcdReset ( void )
 
     WriteRawRC ( CommandReg, 0x0f );
 
-    while ( ReadRawRC ( CommandReg ) & 0x10 );
+    /* 等软复位完成, 必须加超时: 模块接触不良时 MISO 一直为高会死等, 把主循环卡死 */
+    {
+        u16 usTimeout = 50;
+        while ( ( ReadRawRC ( CommandReg ) & 0x10 ) && ( -- usTimeout != 0 ) );
+    }
 
     delay_us ( 1 );
 
@@ -776,4 +782,31 @@ u8 RC522_ReadCardID ( u8 * pSnr )
     pSnr[3] = ucArray_ID[3];
 
     return 1;
+}
+
+/*
+ * 检查RC522是否仍在正常工作
+ *
+ * 风扇等大电流负载启停时, 3.3V 可能瞬间跌落把 RC522 复位: 数字部分还能响应,
+ * 但寄存器全部回到默认值(天线关闭、定时器配置丢失), 之后就一直读不到卡。
+ * 这里读版本号和天线控制寄存器来判断, 发现异常就重新初始化。
+ */
+void RC522_Check ( void )
+{
+    u8 ucVer, ucTx;
+
+    ucVer = ReadRawRC ( VersionReg );
+
+    if ( ucVer == 0x00 || ucVer == 0xFF )      /* SPI 完全没响应, 重新初始化 */
+    {
+        RC522_Init ();
+        return;
+    }
+
+    ucTx = ReadRawRC ( TxControlReg );
+
+    if ( ! ( ucTx & 0x03 ) )                   /* 天线被关掉了, 多为掉电复位, 重新配置 */
+    {
+        RC522_Init ();
+    }
 }

@@ -29,10 +29,22 @@ void Control_Init(void)
     g_sys.card_denied = 0;
 
     g_sys.fan = 0;
+    g_sys.cold_fan = 0;
     g_sys.heater = 0;
     g_sys.cooler = 0;
     g_sys.humidifier = 0;
     g_sys.alarm = 0;
+}
+
+/*
+ * 把当前应有的转速真正写到 PWM 上
+ *
+ * 等待刷卡期间强制停转: 冷风风扇 PWM 的边沿噪声会盖住 RC522 的 13.56MHz
+ * 接收前端, 风扇一转起来就刷不上卡。验证结束立即恢复原转速。
+ */
+static void ColdFan_Apply(void)
+{
+    ColdFan_SetDuty((g_sys.state == ST_WAIT_CARD) ? 0 : g_sys.cold_fan);
 }
 
 u8 Control_CardAuthorized(u8 *id)
@@ -67,10 +79,12 @@ void Control_Update(u8 temp, u8 humi, u8 data_valid)
         g_sys.heater = 0;
         g_sys.cooler = 0;
         g_sys.fan = 0;
+        g_sys.cold_fan = 0;
         g_sys.humidifier = 0;
         Heater_Set(0);
         Cooler_Set(0);
         Fan_Set(0);
+        ColdFan_SetDuty(0);
         Humidifier_Set(0);
         return;
     }
@@ -92,6 +106,21 @@ void Control_Update(u8 temp, u8 humi, u8 data_valid)
         g_sys.cooler = 0;
     }
 
+    //---------------- 冷风风扇调速 ----------------
+    /*
+     * 制冷片旁边的循环风扇, 负责把冷气吹向四周。转速只跟"室温比目标温度高
+     * 多少"有关: 不高于目标温度停转, 高出10℃及以上满速, 中间线性过渡。
+     */
+    {
+        s16 dt = (s16)temp - (s16)g_sys.temp_set;
+
+        if(dt <= 0)                     g_sys.cold_fan = 0;
+        else if(dt >= COLDFAN_FULL_DT)  g_sys.cold_fan = 100;
+        else                            g_sys.cold_fan = (u8)(dt * COLDFAN_DUTY_PER_DT);
+
+        ColdFan_Apply();
+    }
+
     //---------------- 湿度控制 ----------------
     if(humi < g_sys.humi_set - HUMI_HYST)
     {
@@ -101,7 +130,7 @@ void Control_Update(u8 temp, u8 humi, u8 data_valid)
     else if(humi > g_sys.humi_set + HUMI_HYST)
     {
         g_sys.humidifier = 0;
-        g_sys.fan = 1;              //湿度高, 开风扇除湿
+        g_sys.fan = 1;              //湿度高, 开除湿风扇(满速)
     }
     else
     {
@@ -159,6 +188,8 @@ void Control_Alarm(u8 temp, u8 humi, u8 data_valid)
  */
 void Control_HandleInput(void)
 {
+    static SysState_t s_state_last = ST_RUN;
+    static u32        s_rf_check   = 0;
     u8  key_t, key_h;
     s16 d;
 
@@ -178,12 +209,23 @@ void Control_HandleInput(void)
                 g_sys.state       = ST_WAIT_CARD;
                 g_sys.wait_start  = Tick_Get();
                 g_sys.card_denied = 0;
+                s_rf_check        = g_sys.wait_start - RC522_CHECK_MS;  //进入时先检查一次
             }
             break;
 
         case ST_WAIT_CARD:
         {
             u8 id[CARD_ID_LEN];
+
+            /*
+             * 风扇停下来需要一点时间, 期间RC522也可能被干扰复位过。
+             * 先确认模块还正常(必要时自动重新初始化), 再去寻卡。
+             */
+            if(Tick_Elapsed(s_rf_check) >= RC522_CHECK_MS)
+            {
+                s_rf_check = Tick_Get();
+                RC522_Check();
+            }
 
             if(key_t || key_h)              //等待过程中再按一次, 取消
             {
@@ -247,5 +289,12 @@ void Control_HandleInput(void)
         default:
             g_sys.state = ST_RUN;
             break;
+    }
+
+    //进出刷卡等待状态时立刻生效, 不必等下一次采集周期
+    if(g_sys.state != s_state_last)
+    {
+        s_state_last = g_sys.state;
+        ColdFan_Apply();
     }
 }
