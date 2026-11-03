@@ -445,6 +445,11 @@
               <FilePath>..\HARDWARE\CONTROL\control.c</FilePath>
             </File>
             <File>
+              <FileName>fuzzy_pid.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\HARDWARE\CONTROL\fuzzy_pid.c</FilePath>
+            </File>
+            <File>
               <FileName>timer.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\HARDWARE\TIMER\timer.c</FilePath>

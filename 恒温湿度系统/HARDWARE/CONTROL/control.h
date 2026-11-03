@@ -1,22 +1,16 @@
 #ifndef __CONTROL_H
 #define __CONTROL_H
 #include "sys.h"
+#include "control_config.h"
 
 /*
  * 恒温恒湿控制逻辑
  *
- * 控制策略: 带回差(迟滞)的开关控制。
- *   温度: 低于 设定值-回差 开加热; 高于 设定值+回差 开制冷;
- *         回到设定值附近(进入回差带内)则停止, 避免继电器频繁动作。
- *   湿度: 低于 设定值-回差 开加湿器; 高于 设定值+回差 开除湿风扇;
- *         回到回差带内则关闭。
- *
- * 冷风风扇(装在制冷片旁边, 把冷气吹向四周的那个)不用开关控制, 而是用 PWM
- * 单独调速, 转速只跟"室温比目标温度高多少"有关, 与其它执行机构无关:
- *   室温 <= 目标温度            -> 停转(占空比 0%)
- *   目标温度 < 室温 < 目标温度+10℃ -> 线性增速, 每高1℃加10%占空比
- *   室温 >= 目标温度+10℃        -> 满速(占空比 100%)
- * 若传感器数据无效, 冷风风扇同样停转。
+ * 温湿度分别使用模糊自整定 PID, 输入为放大10倍的卡尔曼估计值。
+ * 正输出: 加热/加湿; 负输出: 制冷/除湿。继电器采用慢周期时间比例控制,
+ * 带最短启停和换向停机时间, 参数集中在 control_config.h。
+ * 冷风风扇在制冷继电器实际开启时按制冷需求调速, 最低启动占空比可配置。
+ * 采样失败或超时立即停机, 清空 PID 状态; 故障停机不受最短开启时间限制。
  *
  * 等待刷卡验证期间冷风风扇会暂时停转: PWM 边沿噪声会盖住 RC522 的 13.56MHz
  * 射频前端, 风扇一转起来就刷不上卡; 验证结束后立刻恢复原转速。
@@ -36,16 +30,6 @@
 #define TEMP_MAX            50
 #define HUMI_MIN            10      //湿度设定范围
 #define HUMI_MAX            90
-
-#define TEMP_HYST           2       //温度控制回差 ℃
-#define HUMI_HYST           3       //湿度控制回差 %RH
-
-/*
- * 冷风风扇调速参数: 占空比 = (室温-目标温度) * COLDFAN_DUTY_PER_DT,
- * 到达 COLDFAN_FULL_DT 度及以上封顶为满速, 不高于目标温度则为 0(停转)。
- */
-#define COLDFAN_FULL_DT     5      //满速对应的温差 ℃
-#define COLDFAN_DUTY_PER_DT 20      //温差每高1℃增加的占空比 %
 
 #define TEMP_ALARM_TH       10       //温度报警阈值, 偏离设定值超过该值报警
 #define HUMI_ALARM_TH       10      //湿度报警阈值
@@ -78,15 +62,19 @@ typedef struct
     u8  cooler;
     u8  humidifier;
     u8  alarm;
+    s16 temp_output_x10;    //PID需求 -1000..1000, 单位0.1%, 不等于继电器状态
+    s16 humi_output_x10;
 } SysCtrl_t;
 
 extern SysCtrl_t g_sys;
 
 void Control_Init(void);
-/* 温湿度闭环控制, 传入滤波后的实测值 */
-void Control_Update(u8 temp, u8 humi, u8 data_valid);
-/* 报警判断 */
-void Control_Alarm(u8 temp, u8 humi, u8 data_valid);
+/* 每个采样周期调用一次, 输入单位0.1℃/0.1%RH, 不是整数℃/%RH。 */
+void Control_Update(s16 temp_x10, s16 humi_x10, u8 data_valid);
+/* 主循环持续调用, 执行时间比例输出和采样超时保护。 */
+void Control_ApplyOutputs(void);
+/* 报警判断, 输入同样放大10倍。 */
+void Control_Alarm(s16 temp_x10, s16 humi_x10, u8 data_valid);
 /* 按键/刷卡/旋钮的状态机, 在主循环中调用 */
 void Control_HandleInput(void);
 /* 判断卡号是否在授权列表中 */

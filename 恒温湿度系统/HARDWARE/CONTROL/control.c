@@ -3,9 +3,113 @@
 #include "encoder.h"
 #include "timer.h"
 #include "rc522.h"
+#include "fuzzy_pid.h"
 #include <stdio.h>
 
 SysCtrl_t g_sys;
+
+static const FuzzyPID_Config_t s_temp_config =
+{
+    TEMP_PID_KP, TEMP_PID_KI, TEMP_PID_KD,
+    TEMP_PID_KP_ADJUST, TEMP_PID_KI_ADJUST, TEMP_PID_KD_ADJUST,
+    TEMP_PID_ERROR_RANGE, TEMP_PID_RATE_RANGE, TEMP_PID_INTEGRAL_ZONE,
+    TEMP_PID_DERIVATIVE_TAU
+};
+static const FuzzyPID_Config_t s_humi_config =
+{
+    HUMI_PID_KP, HUMI_PID_KI, HUMI_PID_KD,
+    HUMI_PID_KP_ADJUST, HUMI_PID_KI_ADJUST, HUMI_PID_KD_ADJUST,
+    HUMI_PID_ERROR_RANGE, HUMI_PID_RATE_RANGE, HUMI_PID_INTEGRAL_ZONE,
+    HUMI_PID_DERIVATIVE_TAU
+};
+static FuzzyPID_t s_temp_pid, s_humi_pid;
+
+/* One mutually exclusive pair: +1 heat/humidify, -1 cool/dehumidify. */
+typedef struct
+{
+    s8 active, last_direction, window_direction;
+    u32 changed_at, off_at, window_start, on_ms;
+    u8 window_valid;
+} RelayPair_t;
+
+static RelayPair_t s_temp_pair, s_humi_pair;
+static u32 s_last_sample;
+static u8 s_control_valid, s_last_temp_set, s_last_humi_set;
+
+static void Pair_Init(RelayPair_t *pair, u32 now)
+{
+    pair->active = pair->last_direction = pair->window_direction = 0;
+    pair->changed_at = pair->off_at = pair->window_start = now;
+    pair->on_ms = 0;
+    pair->window_valid = 0;
+}
+
+static void Pair_Stop(RelayPair_t *pair, u32 now)
+{
+    if(pair->active)
+    {
+        pair->last_direction = pair->active;
+        pair->active = 0;
+        pair->changed_at = pair->off_at = now;
+    }
+    pair->window_valid = 0;
+}
+
+static void Pair_Apply(RelayPair_t *pair, float demand, u32 now)
+{
+    s8 direction = demand > 0.0f ? 1 : (demand < 0.0f ? -1 : 0);
+    s8 wanted;
+    float magnitude = demand < 0.0f ? -demand : demand;
+    u32 elapsed;
+
+    /* Latch magnitude per window. Direction/zero changes take effect earlier. */
+    elapsed = (u32)(now - pair->window_start);
+    if(!pair->window_valid || elapsed >= CONTROL_WINDOW_MS ||
+       direction != pair->window_direction)
+    {
+        pair->window_start = now;
+        pair->window_direction = direction;
+        pair->window_valid = 1;
+        pair->on_ms = (u32)(magnitude * (float)CONTROL_WINDOW_MS / 100.0f + 0.5f);
+        if(pair->on_ms > CONTROL_WINDOW_MS) pair->on_ms = CONTROL_WINDOW_MS;
+        /* Do not stretch tiny demands into a permanent minimum-power output. */
+        if(pair->on_ms < CONTROL_MIN_ON_MS) pair->on_ms = 0;
+        if(pair->on_ms < CONTROL_WINDOW_MS &&
+           CONTROL_WINDOW_MS - pair->on_ms < CONTROL_MIN_OFF_MS)
+            pair->on_ms = CONTROL_WINDOW_MS - CONTROL_MIN_OFF_MS;
+        elapsed = 0;
+    }
+    wanted = elapsed < pair->on_ms ? pair->window_direction : 0;
+    if(pair->active && pair->active != wanted)
+    {
+        if((u32)(now - pair->changed_at) < CONTROL_MIN_ON_MS) return;
+        Pair_Stop(pair, now);
+        /* Keep this window's timing after a normal pulse ends. */
+        pair->window_valid = 1;
+    }
+    if(!pair->active && wanted)
+    {
+        if((u32)(now - pair->off_at) < CONTROL_MIN_OFF_MS) return;
+        if(pair->last_direction && wanted != pair->last_direction &&
+           (u32)(now - pair->off_at) < CONTROL_REVERSE_OFF_MS) return;
+        pair->active = wanted;
+        pair->changed_at = now;
+    }
+}
+
+static void Control_Stop(u32 now)
+{
+    Pair_Stop(&s_temp_pair, now);
+    Pair_Stop(&s_humi_pair, now);
+    FuzzyPID_Reset(&s_temp_pid);
+    FuzzyPID_Reset(&s_humi_pid);
+    s_control_valid = 0;
+    g_sys.temp_output_x10 = g_sys.humi_output_x10 = 0;
+    g_sys.heater = g_sys.cooler = g_sys.fan = g_sys.humidifier = 0;
+    g_sys.cold_fan = 0;
+    g_sys.alarm = 0;
+    Actuator_AllOff();
+}
 
 /*
  * 授权卡号列表
@@ -34,6 +138,15 @@ void Control_Init(void)
     g_sys.cooler = 0;
     g_sys.humidifier = 0;
     g_sys.alarm = 0;
+    g_sys.temp_output_x10 = g_sys.humi_output_x10 = 0;
+    FuzzyPID_Init(&s_temp_pid, &s_temp_config);
+    FuzzyPID_Init(&s_humi_pid, &s_humi_config);
+    Pair_Init(&s_temp_pair, Tick_Get());
+    Pair_Init(&s_humi_pair, Tick_Get());
+    s_last_sample = Tick_Get();
+    s_last_temp_set = g_sys.temp_set;
+    s_last_humi_set = g_sys.humi_set;
+    s_control_valid = 0;
 }
 
 /*
@@ -63,99 +176,84 @@ u8 Control_CardAuthorized(u8 *id)
     return 0;
 }
 
-/*
- * 温湿度闭环控制(带回差的开关控制)
- *
- * 以温度为例, 设定值 S, 回差 H:
- *   实测 < S-H  -> 开加热, 关制冷
- *   实测 > S+H  -> 开制冷, 关加热
- *   S-H <= 实测 <= S+H -> 两者都关(落在回差带内, 保持)
- * 这样可以避免在设定值附近继电器来回抖动。
- */
-void Control_Update(u8 temp, u8 humi, u8 data_valid)
+/* Called once per fresh sample, including failures. Inputs are in tenths. */
+void Control_Update(s16 temp_x10, s16 humi_x10, u8 data_valid)
 {
-    if(!data_valid)                 //传感器数据无效时全部停机, 防止误动作
+    u32 now = Tick_Get();
+    u32 elapsed = (u32)(now - s_last_sample);
+    float dt = (float)CONTROL_SAMPLE_MS / 1000.0f;
+
+    if(!data_valid || temp_x10 < 0 || temp_x10 > 500 ||
+       humi_x10 < 200 || humi_x10 > 900)
     {
-        g_sys.heater = 0;
-        g_sys.cooler = 0;
-        g_sys.fan = 0;
-        g_sys.cold_fan = 0;
-        g_sys.humidifier = 0;
-        Heater_Set(0);
-        Cooler_Set(0);
-        Fan_Set(0);
-        ColdFan_SetDuty(0);
-        Humidifier_Set(0);
+        Control_Stop(now);
         return;
     }
+    if(s_control_valid)
+    {
+        if(elapsed == 0) return; /* Repeated calls must not integrate twice. */
+        if(elapsed >= CONTROL_STALE_MS) Control_Stop(now);
+        else dt = (float)elapsed / 1000.0f;
+    }
+    /* Discard old integral and derivative history after setpoint changes. */
+    if(g_sys.temp_set != s_last_temp_set) FuzzyPID_Reset(&s_temp_pid);
+    if(g_sys.humi_set != s_last_humi_set) FuzzyPID_Reset(&s_humi_pid);
+    s_last_temp_set = g_sys.temp_set;
+    s_last_humi_set = g_sys.humi_set;
+    FuzzyPID_Update(&s_temp_pid, (float)g_sys.temp_set, (float)temp_x10 / 10.0f, dt);
+    FuzzyPID_Update(&s_humi_pid, (float)g_sys.humi_set, (float)humi_x10 / 10.0f, dt);
+    g_sys.temp_output_x10 = (s16)(s_temp_pid.output * 10.0f);
+    g_sys.humi_output_x10 = (s16)(s_humi_pid.output * 10.0f);
+    s_last_sample = now;
+    s_control_valid = 1;
+    Control_ApplyOutputs();
+}
 
-    //---------------- 温度控制 ----------------
-    if(temp < g_sys.temp_set - TEMP_HYST)
-    {
-        g_sys.heater = 1;
-        g_sys.cooler = 0;
-    }
-    else if(temp > g_sys.temp_set + TEMP_HYST)
-    {
-        g_sys.heater = 0;
-        g_sys.cooler = 1;
-    }
-    else                            //进入回差带, 停止调温
-    {
-        g_sys.heater = 0;
-        g_sys.cooler = 0;
-    }
+/* Runs in the foreground loop; no PID computations in the timer ISR. */
+void Control_ApplyOutputs(void)
+{
+    u32 now = Tick_Get();
+    float cooling;
 
-    //---------------- 冷风风扇调速 ----------------
-    /*
-     * 制冷片旁边的循环风扇, 负责把冷气吹向四周。转速只跟"室温比目标温度高
-     * 多少"有关: 不高于目标温度停转, 高出10℃及以上满速, 中间线性过渡。
-     */
+    if(!s_control_valid) return;
+    if((u32)(now - s_last_sample) >= CONTROL_STALE_MS)
     {
-        s16 dt = (s16)temp - (s16)g_sys.temp_set;
-
-        if(dt <= 0)                     g_sys.cold_fan = 0;
-        else if(dt >= COLDFAN_FULL_DT)  g_sys.cold_fan = 100;
-        else                            g_sys.cold_fan = (u8)(dt * COLDFAN_DUTY_PER_DT);
-
-        ColdFan_Apply();
+        Control_Stop(now);
+        return;
     }
+    Pair_Apply(&s_temp_pair, s_temp_pid.output, now);
+    Pair_Apply(&s_humi_pair, s_humi_pid.output, now);
+    g_sys.heater = s_temp_pair.active > 0;
+    g_sys.cooler = s_temp_pair.active < 0;
+    g_sys.humidifier = s_humi_pair.active > 0;
+    g_sys.fan = s_humi_pair.active < 0;
 
-    //---------------- 湿度控制 ----------------
-    if(humi < g_sys.humi_set - HUMI_HYST)
+    /* Write OFF outputs first so a polarity change never overlaps in GPIO. */
+    if(!g_sys.heater) Heater_Set(0);
+    if(!g_sys.cooler) Cooler_Set(0);
+    if(!g_sys.humidifier) Humidifier_Set(0);
+    if(!g_sys.fan) Fan_Set(0);
+    if(g_sys.heater) Heater_Set(1);
+    if(g_sys.cooler) Cooler_Set(1);
+    if(g_sys.humidifier) Humidifier_Set(1);
+    if(g_sys.fan) Fan_Set(1);
+
+    g_sys.cold_fan = 0;
+    if(g_sys.cooler)
     {
-        g_sys.humidifier = 1;       //湿度低, 加湿
-        g_sys.fan = 0;
+        cooling = -s_temp_pid.output;
+        if(cooling < CONTROL_COLDFAN_MIN_DUTY) cooling = CONTROL_COLDFAN_MIN_DUTY;
+        if(cooling > 100.0f) cooling = 100.0f;
+        g_sys.cold_fan = (u8)(cooling + 0.5f);
     }
-    else if(humi > g_sys.humi_set + HUMI_HYST)
-    {
-        g_sys.humidifier = 0;
-        g_sys.fan = 1;              //湿度高, 开除湿风扇(满速)
-    }
-    else
-    {
-        g_sys.humidifier = 0;
-        g_sys.fan = 0;
-    }
-
-    //加热和制冷互锁, 任何情况下不允许同时导通
-    if(g_sys.heater && g_sys.cooler)
-    {
-        g_sys.heater = 0;
-        g_sys.cooler = 0;
-    }
-
-    Heater_Set(g_sys.heater);
-    Cooler_Set(g_sys.cooler);
-    Fan_Set(g_sys.fan);
-    Humidifier_Set(g_sys.humidifier);
+    ColdFan_Apply();
 }
 
 /*
  * 报警判断
  * 温度或湿度偏离设定值超过报警阈值时蜂鸣器响, 回到阈值内自动停。
  */
-void Control_Alarm(u8 temp, u8 humi, u8 data_valid)
+void Control_Alarm(s16 temp_x10, s16 humi_x10, u8 data_valid)
 {
     s16 dt, dh;
 
@@ -166,12 +264,12 @@ void Control_Alarm(u8 temp, u8 humi, u8 data_valid)
         return;
     }
 
-    dt = (s16)temp - (s16)g_sys.temp_set;
-    dh = (s16)humi - (s16)g_sys.humi_set;
+    dt = temp_x10 - (s16)g_sys.temp_set * 10;
+    dh = humi_x10 - (s16)g_sys.humi_set * 10;
     if(dt < 0) dt = -dt;
     if(dh < 0) dh = -dh;
 
-    if(dt > TEMP_ALARM_TH || dh > HUMI_ALARM_TH) g_sys.alarm = 1;
+    if(dt > TEMP_ALARM_TH * 10 || dh > HUMI_ALARM_TH * 10) g_sys.alarm = 1;
     else                                         g_sys.alarm = 0;
 
     Beep_Set(g_sys.alarm);

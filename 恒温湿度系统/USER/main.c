@@ -3,10 +3,9 @@
  * 主控: STM32F103C8T6 (最小系统板)
  *
  * 功能:
- *   1. DHT11 采集环境温湿度, 经中值 + 一阶滞后滤波后使用;
- *   2. 带回差的开关控制: 加热器/制冷片调温, 加湿器/除湿风扇调湿;
- *   3. 制冷片旁边的冷风风扇用 PWM 调速: 室温比目标温度高得越多转得越快,
- *      高出10℃及以上满速, 不高于目标温度停转;
+ *   1. DHT11 采集环境温湿度, 分别使用一阶卡尔曼滤波;
+ *   2. 温湿度双路模糊自整定 PID, 继电器采用慢周期时间比例控制;
+ *   3. 冷风风扇按制冷需求 PWM 调速, 带最低启动占空比;
  *   4. 温湿度偏离设定值超过阈值时蜂鸣器报警, 回到阈值内自动解除;
  *   5. 0.96寸 SPI OLED 显示实测值、设定值、各执行机构状态与冷风风扇占空比;
  *   6. 两个旋钮编码器分别调整温度、湿度设定值;
@@ -29,7 +28,6 @@
 #include "control.h"
 #include "timer.h"
 
-#define SAMPLE_PERIOD_MS    2000    //DHT11 采集周期, 必须大于1s
 #define DISPLAY_PERIOD_MS   200     //显示刷新周期
 #define DENIED_SHOW_MS      2000    //"非授权卡"提示保持时间
 
@@ -66,6 +64,8 @@ int main(void)
 
     //先采一轮, 避免开机瞬间显示无效值
     DHT11_Filter_Update();
+    Control_Update(DHT11_Get_Temp_x10(), DHT11_Get_Humi_x10(), DHT11_Data_Valid());
+    Control_Alarm(DHT11_Get_Temp_x10(), DHT11_Get_Humi_x10(), DHT11_Data_Valid());
     t_sample  = Tick_Get();
     t_display = Tick_Get();
 
@@ -75,6 +75,7 @@ int main(void)
     {
         //---------------- 按键 / 刷卡 / 旋钮 ----------------
         Control_HandleInput();
+        Control_ApplyOutputs();
 
         //"非授权卡"提示定时清除
         if(g_sys.card_denied)
@@ -89,22 +90,23 @@ int main(void)
         else t_denied = 0;
 
         //---------------- 温湿度采集与控制 ----------------
-        if(Tick_Elapsed(t_sample) >= SAMPLE_PERIOD_MS)
+        if(Tick_Elapsed(t_sample) >= CONTROL_SAMPLE_MS)
         {
             t_sample = Tick_Get();
 
             DHT11_Filter_Update();
 
             //调整设定值的过程中依然保持控制和报警, 不中断恒温恒湿
-            Control_Update(DHT11_Get_Temp(), DHT11_Get_Humi(), DHT11_Data_Valid());
-            Control_Alarm (DHT11_Get_Temp(), DHT11_Get_Humi(), DHT11_Data_Valid());
+            Control_Update(DHT11_Get_Temp_x10(), DHT11_Get_Humi_x10(), DHT11_Data_Valid());
+            Control_Alarm (DHT11_Get_Temp_x10(), DHT11_Get_Humi_x10(), DHT11_Data_Valid());
 
-            printf("T=%d.%dC H=%d.%d%% Tset=%d Hset=%d HT=%d CL=%d FN=%d CF=%d HM=%d AL=%d\r\n",
+            printf("T=%d.%dC H=%d.%d%% Tset=%d Hset=%d HT=%d CL=%d FN=%d CF=%d HM=%d AL=%d UT10=%d UH10=%d V=%d\r\n",
                    DHT11_Get_Temp_x10() / 10, DHT11_Get_Temp_x10() % 10,
                    DHT11_Get_Humi_x10() / 10, DHT11_Get_Humi_x10() % 10,
                    g_sys.temp_set, g_sys.humi_set,
                    g_sys.heater, g_sys.cooler, g_sys.fan, g_sys.cold_fan,
-                   g_sys.humidifier, g_sys.alarm);
+                   g_sys.humidifier, g_sys.alarm,
+                   g_sys.temp_output_x10, g_sys.humi_output_x10, DHT11_Data_Valid());
         }
 
         //---------------- 显示刷新 ----------------
